@@ -231,6 +231,12 @@ where
     } = proof;
 
     let pcs = config.pcs();
+
+    // Ensure that degree_bits is within reasonable bounds to prevent overflows and panics.
+    if *degree_bits >= (usize::BITS as usize) {
+        return Err(VerificationError::InvalidProofShape);
+    }
+
     let degree = 1 << degree_bits;
     let trace_domain = pcs.natural_domain_for_degree(degree);
     // TODO: allow moving preprocessed commitment to preprocess time, if known in advance
