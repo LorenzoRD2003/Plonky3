@@ -231,6 +231,9 @@ where
     } = proof;
 
     let pcs = config.pcs();
+    if *degree_bits >= Val::<SC>::bits() || *degree_bits < config.is_zk() {
+        return Err(VerificationError::InvalidProofShape);
+    }
     let degree = 1 << degree_bits;
     let trace_domain = pcs.natural_domain_for_degree(degree);
     // TODO: allow moving preprocessed commitment to preprocess time, if known in advance
@@ -253,6 +256,11 @@ where
     };
     let log_num_quotient_chunks =
         get_log_num_quotient_chunks::<Val<SC>, A>(air, layout, config.is_zk());
+    if log_num_quotient_chunks + config.is_zk() >= Val::<SC>::bits()
+        || degree_bits + log_num_quotient_chunks >= Val::<SC>::bits()
+    {
+        return Err(VerificationError::InvalidProofShape);
+    }
     let num_quotient_chunks = 1 << (log_num_quotient_chunks + config.is_zk());
     let mut challenger = config.initialise_challenger();
     let init_trace_domain = pcs.natural_domain_for_degree(degree >> (config.is_zk()));

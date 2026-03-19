@@ -119,6 +119,12 @@ where
     let total_log_reduction: usize = log_arities.iter().sum();
     let log_global_max_height = total_log_reduction + params.log_blowup + params.log_final_poly_len;
 
+    if log_global_max_height > Val::TWO_ADICITY
+        || log_global_max_height + folding.extra_query_index_bits() >= (usize::BITS as usize)
+    {
+        return Err(FriError::InvalidProofShape);
+    }
+
     if proof.commit_pow_witnesses.len() != proof.commit_phase_commits.len() {
         return Err(FriError::InvalidProofShape);
     }

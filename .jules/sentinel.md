@@ -1,0 +1,4 @@
+## 2025-01-24 - DoS vulnerabilities in verifier metadata handling
+**Vulnerability:** Prover-supplied metadata like `degree_bits` (in `uni-stark`) and `log_arity` (in `fri`) were used in bit-shifts and domain generation without validation. Maliciously large values could cause integer overflow panics or out-of-bounds bit-shifts in the verifier.
+**Learning:** Generic verifiers in Plonky3 often rely on PCS and Domain trait methods (like `natural_domain_for_degree` or `create_disjoint_domain`) that internally `unwrap()` on domain creation. If these are called with proof-controlled values that exceed the field's capacity (e.g., `TWO_ADICITY`), the verifier panics.
+**Prevention:** Verifiers must explicitly validate all prover-provided metadata against architecture limits (`usize::BITS`) and field limits (`Val::bits()` or `TWO_ADICITY`) at the earliest possible entry point before performing arithmetic or calling domain-generation methods.
