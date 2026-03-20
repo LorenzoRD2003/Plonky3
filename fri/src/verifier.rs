@@ -116,8 +116,42 @@ where
 
     // With variable arity, we compute log_global_max_height by summing all log_arities.
     // Each round reduces the domain size by its log_arity.
-    let total_log_reduction: usize = log_arities.iter().sum();
-    let log_global_max_height = total_log_reduction + params.log_blowup + params.log_final_poly_len;
+    let mut total_log_reduction: usize = 0;
+    for &la in &log_arities {
+        if la == 0 || la > params.max_log_arity {
+            return Err(FriError::InvalidProofShape);
+        }
+        total_log_reduction = total_log_reduction
+            .checked_add(la)
+            .ok_or(FriError::InvalidProofShape)?;
+    }
+
+    let log_global_max_height = total_log_reduction
+        .checked_add(params.log_blowup)
+        .and_then(|l| l.checked_add(params.log_final_poly_len))
+        .ok_or(FriError::InvalidProofShape)?;
+
+    // Reject proofs that exceed field or system limits to prevent panics during
+    // domain generation or bit-sampling.
+    if log_global_max_height > Val::TWO_ADICITY
+        || log_global_max_height.checked_add(folding.extra_query_index_bits()).is_none_or(|b| b >= usize::BITS as usize)
+    {
+        return Err(FriError::InvalidProofShape);
+    }
+
+    // Ensure consistency between proof metadata and the actual maximum height of input matrices.
+    let log_max_input_height = commitments_with_opening_points
+        .iter()
+        .flat_map(|(_, mats)| {
+            mats.iter()
+                .map(|(domain, _)| log2_strict_usize(domain.size()) + params.log_blowup)
+        })
+        .max()
+        .unwrap_or(0);
+
+    if log_global_max_height != log_max_input_height {
+        return Err(FriError::InvalidProofShape);
+    }
 
     if proof.commit_pow_witnesses.len() != proof.commit_phase_commits.len() {
         return Err(FriError::InvalidProofShape);
