@@ -52,6 +52,7 @@ where
 
     // Circle folding only supports arity 2 (log_arity = 1). Enforce this before any
     // arithmetic/challenge-sampling that could panic on malformed proof metadata.
+    // Also ensure log_arity is not 0.
     if arity_schedule.iter().any(|&la| la != 1) {
         return Err(FriError::InvalidProofShape);
     }
@@ -87,7 +88,12 @@ where
     }
 
     // With variable arity, compute log_max_height by summing all log_arities
-    let total_log_reduction: usize = arity_schedule.iter().map(|&o| o as usize).sum();
+    let mut total_log_reduction: usize = 0;
+    for &log_arity in &arity_schedule {
+        total_log_reduction = total_log_reduction
+            .checked_add(log_arity as usize)
+            .ok_or(FriError::InvalidProofShape)?;
+    }
     let log_max_height = total_log_reduction
         .checked_add(params.log_blowup)
         .ok_or(FriError::InvalidProofShape)?;

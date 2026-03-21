@@ -1,0 +1,4 @@
+## 2025-03-21 - FRI Verifier Hardening
+**Vulnerability:** Prover-controlled `log_arity` and `log_arities` schedule could cause denial-of-service via integer overflow/underflow or excessive memory allocation in the verifier. Additionally, a missing binding between the FRI reduction schedule and the Fiat-Shamir transcript allowed for potential grinding attacks.
+**Learning:** The FRI verifier was trusting the proof's `log_arity` values without ensuring they were non-zero and consistent with the input matrices' heights. `domain.size()` in Plonky3's PCS refers to the already-blown-up LDT domain, which is a common point of confusion.
+**Prevention:** Always validate that prover-supplied dimensions (`log_arity`, `degree_bits`) are within expected bounds and consistent with commitments. Use `checked_add` for summing proof metadata. Bind all proof-defining parameters (like the arity schedule) into the transcript early.
