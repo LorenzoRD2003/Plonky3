@@ -1,0 +1,4 @@
+## 2025-01-24 - [FRI Verifier: Unvalidated log_arities leading to panics and DoS]
+**Vulnerability:** A hostile prover could provide a `FriProof` with malformed `log_arities` (e.g., extremely large or inconsistent with input matrix heights), causing the verifier to panic (integer overflow/underflow) or potentially exhaust resources.
+**Learning:** Verifiers must explicitly validate all prover-provided metadata, especially parameters that control loop iterations or bit-shifts (like `log_arity` or `degree_bits`), before any arithmetic is performed.
+**Prevention:** Always validate `log_arities` against `params.max_log_arity`, ensure they are non-zero, and check that the total reduction matches the expected `log_global_max_height` derived from the input commitments. Use `checked_sub` for all domain-size-related arithmetic.

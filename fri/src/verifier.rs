@@ -128,7 +128,11 @@ where
         .commit_phase_commits
         .iter()
         .zip(&proof.commit_pow_witnesses)
-        .map(|(comm, witness)| {
+        .zip(&log_arities)
+        .map(|((comm, witness), &log_arity)| {
+            if log_arity == 0 || log_arity > params.max_log_arity {
+                return Err(FriError::InvalidProofShape);
+            }
             // Observe the commitment, check the PoW witness, then sample the
             // folding challenge.
             challenger.observe(comm.clone());
@@ -138,6 +142,20 @@ where
             Ok(challenger.sample_algebra_element())
         })
         .collect::<Result<Vec<_>, _>>()?;
+
+    // The log of the final domain size.
+    let log_final_height = params.log_blowup + params.log_final_poly_len;
+
+    let expected_log_global_max_height = commitments_with_opening_points
+        .iter()
+        .flat_map(|(_, mats)| mats.iter().map(|(domain, _)| domain.size()))
+        .max()
+        .map(|s| log2_strict_usize(s) + params.log_blowup)
+        .unwrap_or(log_final_height);
+
+    if log_global_max_height != expected_log_global_max_height {
+        return Err(FriError::InvalidProofShape);
+    }
 
     // Ensure that the final polynomial has the expected degree.
     if proof.final_poly.len() != params.final_poly_len() {
@@ -161,9 +179,6 @@ where
     if !challenger.check_witness(params.query_proof_of_work_bits, proof.query_pow_witness) {
         return Err(FriError::InvalidPowWitness);
     }
-
-    // The log of the final domain size.
-    let log_final_height = params.log_blowup + params.log_final_poly_len;
 
     for QueryProof {
         input_proof,
@@ -475,7 +490,9 @@ where
         )? {
             let log_height = log2_strict_usize(mat_domain.size()) + params.log_blowup;
 
-            let bits_reduced = log_global_max_height - log_height;
+            let bits_reduced = log_global_max_height
+                .checked_sub(log_height)
+                .ok_or(FriError::InvalidProofShape)?;
             let rev_reduced_index = reverse_bits_len(index >> bits_reduced, log_height);
 
             // TODO: this can be nicer with domain methods?
