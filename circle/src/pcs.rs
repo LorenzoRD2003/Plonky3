@@ -672,10 +672,9 @@ mod tests {
             <Pcs as p3_commit::Pcs<Challenge, Challenger>>::commit(&pcs, [(d, evals)]);
         let zeta: Challenge = rng.random();
         let mut prover_chal = Challenger::from_hasher(vec![], byte_hash);
-        let (values, proof) = pcs.open(vec![(&data, vec![vec![zeta]])], &mut prover_chal);
+        let (values, mut proof) = pcs.open(vec![(&data, vec![vec![zeta]])], &mut prover_chal);
 
-        let mut mutated_proof = proof.clone();
-        for qp in &mut mutated_proof.fri_proof.query_proofs {
+        for qp in &mut proof.fri_proof.query_proofs {
             if let Some(step) = qp.commit_phase_openings.first_mut() {
                 step.log_arity = 2;
             }
@@ -683,7 +682,7 @@ mod tests {
 
         let rounds = vec![(comm, vec![(d, vec![(zeta, values[0][0][0].clone())])])];
         let mut verifier_chal = Challenger::from_hasher(vec![], byte_hash);
-        let result = pcs.verify(rounds, &mutated_proof, &mut verifier_chal);
+        let result = pcs.verify(rounds, &proof, &mut verifier_chal);
         assert!(
             result.is_err(),
             "expected clean verifier rejection for mutated log_arity=2"
@@ -728,8 +727,8 @@ mod tests {
         let (values, proof) = pcs.open(vec![(&data, vec![vec![zeta]])], &mut prover_chal);
 
         for mutated in [64u8, 255u8] {
-            let mut mutated_proof = proof.clone();
-            for qp in &mut mutated_proof.fri_proof.query_proofs {
+            let mut proof = proof.clone();
+            for qp in &mut proof.fri_proof.query_proofs {
                 if let Some(step) = qp.commit_phase_openings.first_mut() {
                     step.log_arity = mutated;
                 }
@@ -741,7 +740,7 @@ mod tests {
             )];
             let mut verifier_chal = Challenger::from_hasher(vec![], byte_hash);
             let result = catch_unwind(AssertUnwindSafe(|| {
-                pcs.verify(rounds, &mutated_proof, &mut verifier_chal)
+                pcs.verify(rounds, &proof, &mut verifier_chal)
             }));
 
             match result {
