@@ -417,8 +417,26 @@ where
         let bivariate_beta: Challenge = challenger.sample_algebra_element();
 
         // +1 to account for first layer
-        let log_global_max_height =
-            proof.fri_proof.commit_phase_commits.len() + self.fri_params.log_blowup + 1;
+        let log_global_max_height = proof
+            .fri_proof
+            .commit_phase_commits
+            .len()
+            .checked_add(self.fri_params.log_blowup)
+            .and_then(|l| l.checked_add(1))
+            .ok_or(FriError::InvalidProofShape)?;
+
+        let expected_log_global_max_height = rounds
+            .iter()
+            .flat_map(|(_, mats)| {
+                mats.iter()
+                    .map(|(domain, _)| domain.log_n + self.fri_params.log_blowup)
+            })
+            .max()
+            .unwrap_or(self.fri_params.log_blowup + 1);
+
+        if log_global_max_height != expected_log_global_max_height {
+            return Err(FriError::InvalidProofShape);
+        }
 
         let folding: CircleFriFoldingForMmcs<Val, Challenge, InputMmcs, FriMmcs> =
             CircleFriFolding(PhantomData);
