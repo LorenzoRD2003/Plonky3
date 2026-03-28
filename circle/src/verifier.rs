@@ -87,10 +87,20 @@ where
     }
 
     // With variable arity, compute log_max_height by summing all log_arities
-    let total_log_reduction: usize = arity_schedule.iter().map(|&o| o as usize).sum();
+    let mut total_log_reduction: usize = 0;
+    for &log_arity in &arity_schedule {
+        total_log_reduction = total_log_reduction
+            .checked_add(log_arity as usize)
+            .ok_or(FriError::InvalidProofShape)?;
+    }
     let log_max_height = total_log_reduction
         .checked_add(params.log_blowup)
         .ok_or(FriError::InvalidProofShape)?;
+
+    if log_max_height > Val::order().bits() as usize || log_max_height >= usize::BITS as usize {
+        return Err(FriError::InvalidProofShape);
+    }
+
     let query_bits = log_max_height
         .checked_add(folding.extra_query_index_bits())
         .ok_or(FriError::InvalidProofShape)?;
