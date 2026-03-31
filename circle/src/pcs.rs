@@ -420,6 +420,19 @@ where
         let log_global_max_height =
             proof.fri_proof.commit_phase_commits.len() + self.fri_params.log_blowup + 1;
 
+        let expected_log_global_max_height = rounds
+            .iter()
+            .flat_map(|(_, mats)| {
+                mats.iter()
+                    .map(|(domain, _)| domain.log_n + self.fri_params.log_blowup)
+            })
+            .max()
+            .unwrap_or(self.fri_params.log_blowup + 1);
+
+        if log_global_max_height != expected_log_global_max_height {
+            return Err(FriError::InvalidProofShape);
+        }
+
         let folding: CircleFriFoldingForMmcs<Val, Challenge, InputMmcs, FriMmcs> =
             CircleFriFolding(PhantomData);
 
@@ -701,7 +714,7 @@ mod tests {
         let mut prover_chal = Challenger::from_hasher(vec![], byte_hash);
         let (values, proof) = pcs.open(vec![(&data, vec![vec![zeta]])], &mut prover_chal);
 
-        let mut mutated_proof = proof.clone();
+        let mut mutated_proof = proof;
         for qp in &mut mutated_proof.fri_proof.query_proofs {
             if let Some(step) = qp.commit_phase_openings.first_mut() {
                 step.log_arity = 2;
