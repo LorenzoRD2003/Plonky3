@@ -112,10 +112,35 @@ where
         return Err(FriError::InvalidProofShape);
     }
 
+    // Validate individual arities against the max allowed arity and system limits.
+    //
+    // Arity must be:
+    // - Non-zero (arity 1 is the minimum reduction).
+    // - Within `params.max_log_arity` (to match prover's config).
+    // - Less than `usize::BITS` (to prevent shift overflows).
+    for &log_arity in &log_arities {
+        if log_arity == 0 || log_arity > params.max_log_arity || log_arity >= usize::BITS as usize {
+            return Err(FriError::InvalidProofShape);
+        }
+    }
+
     // With variable arity, we compute log_global_max_height by summing all log_arities.
     // Each round reduces the domain size by its log_arity.
-    let total_log_reduction: usize = log_arities.iter().sum();
-    let log_global_max_height = total_log_reduction + params.log_blowup + params.log_final_poly_len;
+    //
+    // Soundness: Prover must not exceed field capacity or system word size.
+    let total_log_reduction: usize = log_arities.iter().try_fold(0usize, |acc, &la| acc.checked_add(la))
+        .ok_or(FriError::InvalidProofShape)?;
+    let log_global_max_height = total_log_reduction
+        .checked_add(params.log_blowup)
+        .and_then(|acc| acc.checked_add(params.log_final_poly_len))
+        .ok_or(FriError::InvalidProofShape)?;
+
+    // Ensure `log_global_max_height` is safe for bit-shifts and domain generation.
+    // - Must be within `usize::BITS` for shifts.
+    // - Must be within `Val::TWO_ADICITY` to sample generators.
+    if log_global_max_height >= usize::BITS as usize || log_global_max_height > Val::TWO_ADICITY {
+        return Err(FriError::InvalidProofShape);
+    }
 
     if proof.commit_pow_witnesses.len() != proof.commit_phase_commits.len() {
         return Err(FriError::InvalidProofShape);
@@ -301,6 +326,12 @@ where
     // using FRI until the domain size reaches (1 << log_final_height).
     for ((&beta, comm), opening) in fold_data_iter {
         let log_arity = opening.log_arity as usize;
+
+        // Soundness: Re-validate arity per-step in the fold loop.
+        // log_arity == 0 would cause division by 1 (no reduction), potentially infinite loop.
+        if log_arity == 0 || log_arity > params.max_log_arity || log_arity > log_current_height {
+            return Err(FriError::InvalidProofShape);
+        }
         let arity = 1 << log_arity;
 
         // Validate that sibling_values has the expected length (arity - 1)
@@ -453,7 +484,14 @@ where
         let reduced_index = batch_heights
             .iter()
             .max()
-            .map(|&h| index >> (log_global_max_height - log2_strict_usize(h)))
+            .map(|&h| {
+                let log_h = log2_strict_usize(h);
+                if log_h > log_global_max_height {
+                    return Err(FriError::InvalidProofShape);
+                }
+                Ok(index >> (log_global_max_height - log_h))
+            })
+            .transpose()?
             .unwrap_or(0);
 
         input_mmcs
@@ -472,6 +510,10 @@ where
             FriError::InvalidProofShape,
         )? {
             let log_height = log2_strict_usize(mat_domain.size()) + params.log_blowup;
+
+            if log_height > log_global_max_height {
+                return Err(FriError::InvalidProofShape);
+            }
 
             let bits_reduced = log_global_max_height - log_height;
             let rev_reduced_index = reverse_bits_len(index >> bits_reduced, log_height);
