@@ -248,7 +248,11 @@ where
     // We require:
     // - `degree_bits >= is_zk` so `degree_bits - is_zk` is safe.
     // - one spare top bit so derived domain-size arithmetic remains representable.
-    if *degree_bits < is_zk || *degree_bits >= (usize::BITS as usize).saturating_sub(1) {
+    // - `degree_bits < Val::<SC>::bits()` so the degree remains within field range.
+    if *degree_bits < is_zk
+        || *degree_bits >= (usize::BITS as usize).saturating_sub(1)
+        || *degree_bits >= Val::<SC>::bits()
+    {
         return Err(invalid_degree_bits());
     }
 
