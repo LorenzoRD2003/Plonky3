@@ -86,15 +86,19 @@ where
         return Err(FriError::InvalidProofShape);
     }
 
-    // With variable arity, compute log_max_height by summing all log_arities
-    let total_log_reduction: usize = arity_schedule.iter().map(|&o| o as usize).sum();
+    // With variable arity, compute log_max_height by summing all log_arities.
+    //
+    // Soundness: Prover must not exceed field capacity or system word size.
+    let total_log_reduction: usize = arity_schedule.iter().try_fold(0usize, |acc, &la| acc.checked_add(la as usize))
+        .ok_or(FriError::InvalidProofShape)?;
     let log_max_height = total_log_reduction
         .checked_add(params.log_blowup)
         .ok_or(FriError::InvalidProofShape)?;
     let query_bits = log_max_height
         .checked_add(folding.extra_query_index_bits())
         .ok_or(FriError::InvalidProofShape)?;
-    if query_bits >= usize::BITS as usize {
+    // Ensure `log_max_height` is safe for bit-shifts and within field capacity.
+    if query_bits >= usize::BITS as usize || log_max_height >= Val::bits() {
         return Err(FriError::InvalidProofShape);
     }
 
