@@ -112,10 +112,35 @@ where
         return Err(FriError::InvalidProofShape);
     }
 
+    for &log_arity in &log_arities {
+        if log_arity == 0 || log_arity > params.max_log_arity || log_arity >= usize::BITS as usize {
+            return Err(FriError::InvalidProofShape);
+        }
+    }
+
     // With variable arity, we compute log_global_max_height by summing all log_arities.
     // Each round reduces the domain size by its log_arity.
-    let total_log_reduction: usize = log_arities.iter().sum();
-    let log_global_max_height = total_log_reduction + params.log_blowup + params.log_final_poly_len;
+    let total_log_reduction: usize = log_arities.iter().try_fold(0usize, |acc, &la| acc.checked_add(la)).ok_or(FriError::InvalidProofShape)?;
+    let log_global_max_height = total_log_reduction
+        .checked_add(params.log_blowup)
+        .and_then(|acc| acc.checked_add(params.log_final_poly_len))
+        .ok_or(FriError::InvalidProofShape)?;
+
+    if log_global_max_height > Val::TWO_ADICITY {
+        return Err(FriError::InvalidProofShape);
+    }
+
+    let expected_log_global_max_height = commitments_with_opening_points
+        .iter()
+        .flat_map(|(_, mats)| mats.iter().map(|(domain, _)| domain.size()))
+        .max()
+        .map_or(params.log_blowup + params.log_final_poly_len, |max_size| {
+            log2_strict_usize(max_size) + params.log_blowup
+        });
+
+    if log_global_max_height != expected_log_global_max_height {
+        return Err(FriError::InvalidProofShape);
+    }
 
     if proof.commit_pow_witnesses.len() != proof.commit_phase_commits.len() {
         return Err(FriError::InvalidProofShape);
@@ -301,6 +326,9 @@ where
     // using FRI until the domain size reaches (1 << log_final_height).
     for ((&beta, comm), opening) in fold_data_iter {
         let log_arity = opening.log_arity as usize;
+        if log_arity == 0 || log_arity >= usize::BITS as usize || log_arity > log_current_height {
+            return Err(FriError::InvalidProofShape);
+        }
         let arity = 1 << log_arity;
 
         // Validate that sibling_values has the expected length (arity - 1)
