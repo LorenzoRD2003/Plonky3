@@ -102,6 +102,12 @@ where
         })
         .unwrap_or_default();
 
+    for &log_arity in &log_arities {
+        if log_arity == 0 || log_arity > params.max_log_arity || log_arity >= usize::BITS as usize {
+            return Err(FriError::InvalidProofShape);
+        }
+    }
+
     if proof.query_proofs.iter().any(|qp| {
         qp.commit_phase_openings
             .iter()
@@ -114,8 +120,32 @@ where
 
     // With variable arity, we compute log_global_max_height by summing all log_arities.
     // Each round reduces the domain size by its log_arity.
-    let total_log_reduction: usize = log_arities.iter().sum();
-    let log_global_max_height = total_log_reduction + params.log_blowup + params.log_final_poly_len;
+    let mut total_log_reduction: usize = 0;
+    for &log_arity in &log_arities {
+        total_log_reduction = total_log_reduction
+            .checked_add(log_arity)
+            .ok_or(FriError::InvalidProofShape)?;
+    }
+    let log_global_max_height = total_log_reduction
+        .checked_add(params.log_blowup)
+        .ok_or(FriError::InvalidProofShape)?
+        .checked_add(params.log_final_poly_len)
+        .ok_or(FriError::InvalidProofShape)?;
+
+    if log_global_max_height >= Val::bits() || log_global_max_height >= usize::BITS as usize {
+        return Err(FriError::InvalidProofShape);
+    }
+
+    let expected_log_global_max_height = commitments_with_opening_points
+        .iter()
+        .flat_map(|(_, mats)| mats.iter().map(|(domain, _)| domain.log_size()))
+        .max()
+        .map(|log_n| log_n + params.log_blowup)
+        .unwrap_or(params.log_final_poly_len + params.log_blowup);
+
+    if log_global_max_height != expected_log_global_max_height {
+        return Err(FriError::InvalidProofShape);
+    }
 
     if proof.commit_pow_witnesses.len() != proof.commit_phase_commits.len() {
         return Err(FriError::InvalidProofShape);
@@ -169,8 +199,13 @@ where
     } in &proof.query_proofs
     {
         // For each query proof, we start by generating the random index.
-        let index =
-            challenger.sample_bits(log_global_max_height + folding.extra_query_index_bits());
+        let query_bits = log_global_max_height
+            .checked_add(folding.extra_query_index_bits())
+            .ok_or(FriError::InvalidProofShape)?;
+        if query_bits >= usize::BITS as usize {
+            return Err(FriError::InvalidProofShape);
+        }
+        let index = challenger.sample_bits(query_bits);
 
         // Next we open all polynomials `f` at the relevant index and combine them into our FRI inputs.
         let ro = open_input(
@@ -301,6 +336,9 @@ where
     // using FRI until the domain size reaches (1 << log_final_height).
     for ((&beta, comm), opening) in fold_data_iter {
         let log_arity = opening.log_arity as usize;
+        if log_arity == 0 || log_arity > params.max_log_arity || log_arity >= usize::BITS as usize {
+            return Err(FriError::InvalidProofShape);
+        }
         let arity = 1 << log_arity;
 
         // Validate that sibling_values has the expected length (arity - 1)
@@ -323,7 +361,9 @@ where
         }
 
         // Compute the new height after folding
-        let log_folded_height = log_current_height - log_arity;
+        let log_folded_height = log_current_height
+            .checked_sub(log_arity)
+            .ok_or(FriError::InvalidProofShape)?;
 
         let dims = &[Dimensions {
             width: arity,
