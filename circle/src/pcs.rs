@@ -701,7 +701,7 @@ mod tests {
         let mut prover_chal = Challenger::from_hasher(vec![], byte_hash);
         let (values, proof) = pcs.open(vec![(&data, vec![vec![zeta]])], &mut prover_chal);
 
-        let mut mutated_proof = proof.clone();
+        let mut mutated_proof = proof;
         for qp in &mut mutated_proof.fri_proof.query_proofs {
             if let Some(step) = qp.commit_phase_openings.first_mut() {
                 step.log_arity = 2;
