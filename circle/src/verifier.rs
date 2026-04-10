@@ -56,6 +56,15 @@ where
         return Err(FriError::InvalidProofShape);
     }
 
+    for &log_arity in &arity_schedule {
+        if log_arity == 0
+            || log_arity as usize > params.max_log_arity
+            || log_arity as usize >= (usize::BITS as usize)
+        {
+            return Err(FriError::InvalidProofShape);
+        }
+    }
+
     let betas: Vec<Challenge> = proof
         .commit_phase_commits
         .iter()
@@ -87,7 +96,10 @@ where
     }
 
     // With variable arity, compute log_max_height by summing all log_arities
-    let total_log_reduction: usize = arity_schedule.iter().map(|&o| o as usize).sum();
+    let total_log_reduction: usize = arity_schedule
+        .iter()
+        .try_fold(0usize, |acc, &la| acc.checked_add(la as usize))
+        .ok_or(FriError::InvalidProofShape)?;
     let log_max_height = total_log_reduction
         .checked_add(params.log_blowup)
         .ok_or(FriError::InvalidProofShape)?;
@@ -210,7 +222,9 @@ where
         }
 
         // Compute the new height after folding
-        let log_folded_height = log_current_height - log_arity;
+        let log_folded_height = log_current_height
+            .checked_sub(log_arity)
+            .ok_or(FriError::InvalidProofShape)?;
 
         let dims = &[Dimensions {
             width: arity,
