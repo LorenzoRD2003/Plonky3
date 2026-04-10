@@ -417,8 +417,29 @@ where
         let bivariate_beta: Challenge = challenger.sample_algebra_element();
 
         // +1 to account for first layer
-        let log_global_max_height =
-            proof.fri_proof.commit_phase_commits.len() + self.fri_params.log_blowup + 1;
+        let log_global_max_height = proof
+            .fri_proof
+            .commit_phase_commits
+            .len()
+            .checked_add(self.fri_params.log_blowup)
+            .and_then(|h| h.checked_add(1))
+            .ok_or(FriError::InvalidProofShape)?;
+
+        // Validate that the calculated log_global_max_height matches the height
+        // derived from the input matrix domains.
+        let expected_log_global_max_height = rounds
+            .iter()
+            .flat_map(|(_, mats)| mats.iter().map(|(domain, _)| domain.size()))
+            .max()
+            .map(|max_size| {
+                log2_strict_usize(max_size).checked_add(self.fri_params.log_blowup)
+            })
+            .ok_or(FriError::InvalidProofShape)?
+            .ok_or(FriError::InvalidProofShape)?;
+
+        if log_global_max_height != expected_log_global_max_height {
+            return Err(FriError::InvalidProofShape);
+        }
 
         let folding: CircleFriFoldingForMmcs<Val, Challenge, InputMmcs, FriMmcs> =
             CircleFriFolding(PhantomData);
@@ -460,10 +481,10 @@ where
                             // Empty batch?
                             (&[][..], 0),
                             |log_batch_max_height| {
-                                (
-                                    &batch_dims[..],
-                                    index >> (log_global_max_height - log_batch_max_height),
-                                )
+                                let bits_reduced = log_global_max_height
+                                    .checked_sub(log_batch_max_height)
+                                    .expect("log_global_max_height >= log_batch_max_height");
+                                (&batch_dims[..], index >> bits_reduced)
                             },
                         );
 
@@ -477,7 +498,9 @@ where
                         InputError::InputShapeError,
                     )? {
                         let log_height = mat_domain.log_n + self.fri_params.log_blowup;
-                        let bits_reduced = log_global_max_height - log_height;
+                        let bits_reduced = log_global_max_height
+                            .checked_sub(log_height)
+                            .expect("log_global_max_height >= log_height");
                         let orig_idx = cfft_permute_index(index >> bits_reduced, log_height);
 
                         let committed_domain = CircleDomain::standard(log_height);
@@ -513,8 +536,12 @@ where
                 .map(|(((log_height, (_, ro)), &fl_sib), &lambda)| {
                     assert!(log_height > 0);
 
-                    let orig_size = log_height - self.fri_params.log_blowup;
-                    let bits_reduced = log_global_max_height - log_height;
+                    let orig_size = log_height
+                        .checked_sub(self.fri_params.log_blowup)
+                        .expect("log_height >= log_blowup");
+                    let bits_reduced = log_global_max_height
+                        .checked_sub(log_height)
+                        .expect("log_global_max_height >= log_height");
                     let orig_idx = cfft_permute_index(index >> bits_reduced, log_height);
 
                     let lde_domain = CircleDomain::standard(log_height);

@@ -102,6 +102,15 @@ where
         })
         .unwrap_or_default();
 
+    for &log_arity in &log_arities {
+        if log_arity == 0
+            || log_arity > params.max_log_arity
+            || log_arity >= (usize::BITS as usize)
+        {
+            return Err(FriError::InvalidProofShape);
+        }
+    }
+
     if proof.query_proofs.iter().any(|qp| {
         qp.commit_phase_openings
             .iter()
@@ -114,8 +123,34 @@ where
 
     // With variable arity, we compute log_global_max_height by summing all log_arities.
     // Each round reduces the domain size by its log_arity.
-    let total_log_reduction: usize = log_arities.iter().sum();
-    let log_global_max_height = total_log_reduction + params.log_blowup + params.log_final_poly_len;
+    let total_log_reduction: usize = log_arities
+        .iter()
+        .try_fold(0usize, |acc, &la| acc.checked_add(la))
+        .ok_or(FriError::InvalidProofShape)?;
+    let log_global_max_height = total_log_reduction
+        .checked_add(params.log_blowup)
+        .and_then(|h: usize| h.checked_add(params.log_final_poly_len))
+        .ok_or(FriError::InvalidProofShape)?;
+
+    if log_global_max_height > Val::TWO_ADICITY
+        || log_global_max_height >= (usize::BITS as usize)
+    {
+        return Err(FriError::InvalidProofShape);
+    }
+
+    // Validate that the calculated log_global_max_height matches the height
+    // derived from the input matrix domains.
+    let expected_log_global_max_height = commitments_with_opening_points
+        .iter()
+        .flat_map(|(_, mats)| mats.iter().map(|(domain, _)| domain.size()))
+        .max()
+        .map(|max_size| log2_strict_usize(max_size).checked_add(params.log_blowup))
+        .unwrap_or(params.log_final_poly_len.checked_add(params.log_blowup))
+        .ok_or(FriError::InvalidProofShape)?;
+
+    if log_global_max_height != expected_log_global_max_height {
+        return Err(FriError::InvalidProofShape);
+    }
 
     if proof.commit_pow_witnesses.len() != proof.commit_phase_commits.len() {
         return Err(FriError::InvalidProofShape);
@@ -323,7 +358,9 @@ where
         }
 
         // Compute the new height after folding
-        let log_folded_height = log_current_height - log_arity;
+        let log_folded_height = log_current_height
+            .checked_sub(log_arity)
+            .ok_or(FriError::InvalidProofShape)?;
 
         let dims = &[Dimensions {
             width: arity,
@@ -365,6 +402,7 @@ where
         //
         // We use `beta^arity` as the random factor to maintain independence.
         if let Some((_, ro)) = ro_iter.next_if(|(lh, _)| *lh == log_folded_height) {
+            // log_arity is already checked to be < usize::BITS
             let beta_pow = beta.exp_power_of_2(log_arity);
             folded_eval += beta_pow * ro;
         }
@@ -473,7 +511,9 @@ where
         )? {
             let log_height = log2_strict_usize(mat_domain.size()) + params.log_blowup;
 
-            let bits_reduced = log_global_max_height - log_height;
+            let bits_reduced = log_global_max_height
+                .checked_sub(log_height)
+                .ok_or(FriError::InvalidProofShape)?;
             let rev_reduced_index = reverse_bits_len(index >> bits_reduced, log_height);
 
             // TODO: this can be nicer with domain methods?
