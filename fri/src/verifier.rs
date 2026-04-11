@@ -97,9 +97,16 @@ where
         .map(|qp| {
             qp.commit_phase_openings
                 .iter()
-                .map(|o| o.log_arity as usize)
-                .collect()
+                .map(|o| {
+                    let la = o.log_arity as usize;
+                    if la == 0 || la > params.max_log_arity {
+                        return Err(FriError::InvalidProofShape);
+                    }
+                    Ok(la)
+                })
+                .collect::<Result<Vec<_>, _>>()
         })
+        .transpose()?
         .unwrap_or_default();
 
     if proof.query_proofs.iter().any(|qp| {
@@ -114,8 +121,31 @@ where
 
     // With variable arity, we compute log_global_max_height by summing all log_arities.
     // Each round reduces the domain size by its log_arity.
-    let total_log_reduction: usize = log_arities.iter().sum();
+    let mut total_log_reduction: usize = 0;
+    for &la in &log_arities {
+        total_log_reduction = total_log_reduction
+            .checked_add(la)
+            .ok_or(FriError::InvalidProofShape)?;
+    }
+
     let log_global_max_height = total_log_reduction + params.log_blowup + params.log_final_poly_len;
+
+    if log_global_max_height > Val::TWO_ADICITY {
+        return Err(FriError::InvalidProofShape);
+    }
+
+    let expected_log_global_max_height = commitments_with_opening_points
+        .iter()
+        .flat_map(|(_, mats)| {
+            mats.iter()
+                .map(|(domain, _)| domain.log_size() + params.log_blowup)
+        })
+        .max()
+        .unwrap_or(params.log_final_poly_len + params.log_blowup);
+
+    if log_global_max_height != expected_log_global_max_height {
+        return Err(FriError::InvalidProofShape);
+    }
 
     if proof.commit_pow_witnesses.len() != proof.commit_phase_commits.len() {
         return Err(FriError::InvalidProofShape);
