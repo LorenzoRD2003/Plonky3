@@ -420,6 +420,20 @@ where
         let log_global_max_height =
             proof.fri_proof.commit_phase_commits.len() + self.fri_params.log_blowup + 1;
 
+        let expected_log_global_max_height = rounds
+            .iter()
+            .flat_map(|(_, mats)| {
+                mats.iter().map(|(domain, _)| {
+                    domain.log_n.checked_add(self.fri_params.log_blowup).unwrap()
+                })
+            })
+            .max()
+            .unwrap_or(self.fri_params.log_blowup + 1);
+
+        if log_global_max_height != expected_log_global_max_height {
+            return Err(FriError::InvalidProofShape);
+        }
+
         let folding: CircleFriFoldingForMmcs<Val, Challenge, InputMmcs, FriMmcs> =
             CircleFriFolding(PhantomData);
 
