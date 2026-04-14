@@ -256,6 +256,74 @@ mod babybear_fri_pcs {
 
         assert_eq!(evals, expected);
     }
+
+    #[test]
+    fn test_fri_verifier_rejects_insufficient_rounds_cleanly() {
+        let (pcs, challenger): (MyPcs, Challenger) = get_pcs(1);
+        let mut rng = seeded_rng();
+
+        let log_size = 5;
+        let d = <MyPcs as Pcs<Challenge, Challenger>>::natural_domain_for_degree(&pcs, 1 << log_size);
+        let evals = RowMajorMatrix::rand(&mut rng, 1 << log_size, 1);
+        let (comm, data) = <MyPcs as Pcs<Challenge, Challenger>>::commit(&pcs, vec![(d, evals)]);
+        let zeta: Challenge = rng.random();
+        let mut p_challenger = challenger.clone();
+        let (values, proof) = pcs.open(vec![(&data, vec![vec![zeta]])], &mut p_challenger);
+
+        // Mutate the proof to have fewer rounds than expected (0 instead of 5).
+        let mut mutated_proof = proof;
+        mutated_proof.commit_phase_commits.clear();
+        mutated_proof.commit_pow_witnesses.clear();
+        for qp in &mut mutated_proof.query_proofs {
+            qp.commit_phase_openings.clear();
+        }
+
+        let mut v_challenger = challenger;
+        let result = pcs.verify(
+            vec![(
+                comm,
+                vec![(d, vec![(zeta, values[0][0][0].clone())])],
+            )],
+            &mutated_proof,
+            &mut v_challenger,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fri_verifier_rejects_oversized_log_arity_cleanly() {
+        let (pcs, challenger): (MyPcs, Challenger) = get_pcs(1);
+        let mut rng = seeded_rng();
+
+        let log_size = 5;
+        let d = <MyPcs as Pcs<Challenge, Challenger>>::natural_domain_for_degree(&pcs, 1 << log_size);
+        let evals = RowMajorMatrix::rand(&mut rng, 1 << log_size, 1);
+        let (comm, data) = <MyPcs as Pcs<Challenge, Challenger>>::commit(&pcs, vec![(d, evals)]);
+        let zeta: Challenge = rng.random();
+        let mut p_challenger = challenger.clone();
+        let (values, proof) = pcs.open(vec![(&data, vec![vec![zeta]])], &mut p_challenger);
+
+        // Mutate proof to have a huge log_arity in one of the rounds.
+        let mut mutated_proof = proof;
+        for qp in &mut mutated_proof.query_proofs {
+            if let Some(opening) = qp.commit_phase_openings.first_mut() {
+                opening.log_arity = 40; // Exceeds usize::BITS and Val::bits()
+            }
+        }
+
+        let mut v_challenger = challenger;
+        let result = pcs.verify(
+            vec![(
+                comm,
+                vec![(d, vec![(zeta, values[0][0][0].clone())])],
+            )],
+            &mutated_proof,
+            &mut v_challenger,
+        );
+
+        assert!(result.is_err());
+    }
 }
 
 mod m31_fri_pcs {
