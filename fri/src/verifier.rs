@@ -114,8 +114,50 @@ where
 
     // With variable arity, we compute log_global_max_height by summing all log_arities.
     // Each round reduces the domain size by its log_arity.
-    let total_log_reduction: usize = log_arities.iter().sum();
-    let log_global_max_height = total_log_reduction + params.log_blowup + params.log_final_poly_len;
+    let total_log_reduction = log_arities
+        .iter()
+        .try_fold(0usize, |acc, &la| acc.checked_add(la))
+        .ok_or(FriError::InvalidProofShape)?;
+
+    let log_global_max_height = total_log_reduction
+        .checked_add(params.log_blowup)
+        .and_then(|acc| acc.checked_add(params.log_final_poly_len))
+        .ok_or(FriError::InvalidProofShape)?;
+
+    // Validate that log_global_max_height matches the expected height from input matrices.
+    let expected_log_global_max_height = commitments_with_opening_points
+        .iter()
+        .flat_map(|(_, mats)| mats.iter().map(|(domain, _)| domain.log_size()))
+        .max()
+        .map(|max_log_trace_height| {
+            max_log_trace_height
+                .checked_add(params.log_blowup)
+                .expect("log_blowup too large")
+        })
+        .unwrap_or(params.log_blowup + params.log_final_poly_len);
+
+    if log_global_max_height != expected_log_global_max_height {
+        return Err(FriError::InvalidProofShape);
+    }
+
+    // Validate that each log_arity is reasonable.
+    for &log_arity in &log_arities {
+        if log_arity == 0 || log_arity > params.max_log_arity || log_arity >= usize::BITS as usize {
+            return Err(FriError::InvalidProofShape);
+        }
+    }
+
+    // Validate that log_global_max_height is within field and system limits.
+    if log_global_max_height > Val::TWO_ADICITY || log_global_max_height >= usize::BITS as usize {
+        return Err(FriError::InvalidProofShape);
+    }
+
+    let query_bits = log_global_max_height
+        .checked_add(folding.extra_query_index_bits())
+        .ok_or(FriError::InvalidProofShape)?;
+    if query_bits >= usize::BITS as usize || query_bits >= Val::bits() {
+        return Err(FriError::InvalidProofShape);
+    }
 
     if proof.commit_pow_witnesses.len() != proof.commit_phase_commits.len() {
         return Err(FriError::InvalidProofShape);
@@ -169,8 +211,7 @@ where
     } in &proof.query_proofs
     {
         // For each query proof, we start by generating the random index.
-        let index =
-            challenger.sample_bits(log_global_max_height + folding.extra_query_index_bits());
+        let index = challenger.sample_bits(query_bits);
 
         // Next we open all polynomials `f` at the relevant index and combine them into our FRI inputs.
         let ro = open_input(
