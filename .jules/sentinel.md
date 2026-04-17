@@ -1,0 +1,4 @@
+## 2025-05-14 - FRI Verifier Panic via Malformed log_arities
+**Vulnerability:** The FRI verifier (`verify_fri`) calculates `log_global_max_height` by summing `log_arity` values from the proof. This calculated height is used in `open_input` for subtractions (`log_global_max_height - log_height`) and in `sample_bits`. A malicious prover can provide a proof with too few or too many `log_arity` steps, causing underflow or overflow/assertion failures (panics) in the verifier.
+**Learning:** Verifiers must strictly validate that prover-provided metadata (like reduction schedules) matches the expected structure derived from the public inputs and system limits before performing arithmetic on them.
+**Prevention:** Explicitly check that `log_global_max_height` matches the expected height from input matrices and that it is within safe bounds (e.g., `usize::BITS`, `Val::bits()`, `Val::TWO_ADICITY`).
