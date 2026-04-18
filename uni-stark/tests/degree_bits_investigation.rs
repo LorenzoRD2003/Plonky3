@@ -5,9 +5,7 @@ use p3_commit::ExtensionMmcs;
 use p3_dft::Radix2DitParallel;
 use p3_field::extension::BinomialExtensionField;
 use p3_field::{Field, PrimeField64};
-use p3_fri::{
-    FriParameters, HidingFriPcs, TwoAdicFriPcs, create_test_fri_params_zk,
-};
+use p3_fri::{FriParameters, HidingFriPcs, TwoAdicFriPcs, create_test_fri_params_zk};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_merkle_tree::{MerkleTreeHidingMmcs, MerkleTreeMmcs};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
@@ -108,7 +106,13 @@ fn make_hiding_config() -> HidingConfig {
     let challenge_mmcs = ChallengeHidingMmcs::new(val_mmcs.clone());
 
     let fri_params = create_test_fri_params_zk(challenge_mmcs);
-    let pcs = HidingPcs::new(Dft::default(), val_mmcs, fri_params, 4, SmallRng::seed_from_u64(7));
+    let pcs = HidingPcs::new(
+        Dft::default(),
+        val_mmcs,
+        fri_params,
+        4,
+        SmallRng::seed_from_u64(7),
+    );
     let challenger = Challenger::new(perm);
     HidingConfig::new(pcs, challenger)
 }
